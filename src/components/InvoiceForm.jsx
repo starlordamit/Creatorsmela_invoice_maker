@@ -102,8 +102,9 @@ const InvoiceForm = ({ onInvoiceUpdate, darkMode, currentStep, setCurrentStep, s
     }, [signatureTrigger, formData.signature]);
 
     useEffect(() => {
-        const pathSegments = window.location.pathname.split('/').filter(Boolean);
-        const accessKey = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : null;
+        //use it from the param key=somekey
+        const urlParams = new URLSearchParams(window.location.search);
+        const accessKey = urlParams.get('key');
         if (accessKey && accessKey !== 'invoice-maker') handleFetch(accessKey);
     }, []);
 
