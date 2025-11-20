@@ -21,10 +21,11 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
             if (!containerRef.current || !contentRef.current || manualZoom) return;
 
             const containerWidth = containerRef.current.offsetWidth;
-            // Add padding only for desktop view calculation
-            const padding = window.innerWidth > 768 ? 300 : 0;
-
-            const newScale = Math.min((containerWidth - padding) / A4_WIDTH, 1);
+            // Add padding based on view
+            const padding = window.innerWidth > 768 ? 64 : 12;
+            // different scales for the different screen sizes
+            const scale = window.innerWidth > 768 ? 0.8 : 0.5;
+            const newScale = Math.max((containerWidth - padding) / A4_WIDTH, scale);
 
             setScale(newScale);
 
@@ -51,7 +52,7 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
             window.removeEventListener('resize', calculateDimensions);
             observer.disconnect();
         };
-    }, [data, scale, manualZoom]);
+    }, [data, scale, manualZoom, window.innerWidth]);
 
     const handleZoom = (direction) => {
         setManualZoom(true);
@@ -60,8 +61,44 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
             if (contentRef.current) {
                 setContainerHeight(contentRef.current.scrollHeight * newScale);
             }
-            return Math.max(0.3, Math.min(newScale, 1.5));
+            return Math.max(0.3, Math.min(newScale, 3));
         });
+    };
+
+    // Pinch to zoom logic
+    const touchStartDist = useRef(null);
+    const startScale = useRef(1);
+
+    const handleTouchStart = (e) => {
+        if (e.touches.length === 2) {
+            const dist = Math.hypot(
+                e.touches[0].pageX - e.touches[1].pageX,
+                e.touches[0].pageY - e.touches[1].pageY
+            );
+            touchStartDist.current = dist;
+            startScale.current = scale;
+        }
+    };
+
+    const handleTouchMove = (e) => {
+        if (e.touches.length === 2 && touchStartDist.current) {
+            const dist = Math.hypot(
+                e.touches[0].pageX - e.touches[1].pageX,
+                e.touches[0].pageY - e.touches[1].pageY
+            );
+            const delta = dist / touchStartDist.current;
+            const newScale = Math.min(Math.max(startScale.current * delta, 0.3), 3);
+            setScale(newScale);
+            setManualZoom(true);
+
+            if (contentRef.current) {
+                setContainerHeight(contentRef.current.scrollHeight * newScale);
+            }
+        }
+    };
+
+    const handleTouchEnd = () => {
+        touchStartDist.current = null;
     };
 
     // --- MATH LOGIC ---
@@ -78,10 +115,18 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
 
     const creatorStateCode = data.creatorGstin ? data.creatorGstin.substring(0, 2) : '';
     const clientStateCode = data.clientGstin ? data.clientGstin.substring(0, 2) : '';
+
     const isIntraState = creatorStateCode && clientStateCode && creatorStateCode === clientStateCode;
     const taxableValue = subtotal - discountAmount;
     const gstRate = 18;
-    const gstAmount = taxableValue * (gstRate / 100);
+    let gstAmount = 0;
+    if (!creatorStateCode || !clientStateCode) {
+        gstAmount = 0;
+    }
+    else {
+        gstAmount = taxableValue * (gstRate / 100);
+    }
+
     const total = taxableValue + gstAmount - tdsAmount;
 
     // --- PDF GENERATION ---
@@ -146,10 +191,12 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
 
     return (
         // OUTER WRAPPER: Respects Dark Mode (UI Context)
-        <div className={`flex flex-col items-center w-full h-full rounded-xl border transition-colors duration-300 ${darkMode ? 'bg-zinc-950 border-zinc-800' : 'bg-slate-100 border-slate-200'}`}>
+        // OUTER WRAPPER: Full height, no borders
+        <div className={`flex flex-col items-center w-full h-full transition-colors duration-300 ${darkMode ? 'bg-zinc-950' : 'bg-slate-100'}`}>
 
             {/* TOOLBAR: Respects Dark Mode (UI Context) */}
-            <div className={`w-full flex flex-col md:flex-row justify-between items-center gap-4 p-4 border-b rounded-t-xl ${darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
+            {/* TOOLBAR: Full width, sticky top */}
+            <div className={`w-full flex flex-col md:flex-row justify-between items-center gap-4 p-4 border-b sticky top-0 z-10 ${darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
 
                 <div className="flex items-center gap-2 text-sm font-medium opacity-70">
                     <span className="hidden md:inline">Zoom: {Math.round(scale * 100)}%</span>
@@ -170,13 +217,21 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
             </div>
 
             {/* SCROLLABLE WORKSPACE */}
-            <div className="w-full h-full flex-1 overflow-y-auto overflow-x-hidden relative p-4 md:p-8 flex justify-center">
+            <div
+                className="w-full h-full flex-1 overflow-auto relative flex pb-20"
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+            >
 
                 {/* SCALING CONTAINER */}
                 <div
                     ref={containerRef}
-                    className="w-full max-w-[1000px] relative transition-all duration-200 ease-out flex justify-center"
-                    style={{ height: containerHeight > 0 ? `${containerHeight}px` : 'auto' }}
+                    className="relative transition-transform duration-75 ease-out flex-shrink-0 m-auto"
+                    style={{
+                        width: `${A4_WIDTH * scale}px`,
+                        height: containerHeight > 0 ? `${containerHeight}px` : 'auto'
+                    }}
                 >
                     {/* INVOICE PAPER: FORCED LIGHT MODE 
                         We hardcode bg-white and text-slate-900 here regardless of 'darkMode' prop.
@@ -188,9 +243,10 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
                             width: '794px', // A4 Width
                             minHeight: '1123px', // A4 Height
                             transform: `scale(${scale})`,
-                            transformOrigin: 'top center',
+                            transformOrigin: 'top left',
                             position: 'absolute',
                             top: 0,
+                            left: 0,
                             backgroundColor: 'white', // FORCE WHITE
                         }}
                         className="shadow-2xl shadow-slate-400/20 bg-white text-slate-900"
@@ -304,15 +360,16 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
                                                     <div className="text-slate-600 font-medium text-xs">Taxes & Deductions</div>
                                                     {/* Breakdown */}
                                                     <div className="text-[10px] mt-0.5 flex flex-col items-end gap-0.5">
-                                                        {isIntraState ? (
-                                                            <span className="text-slate-400">
-                                                                CGST (9%) + SGST (9%): +{gstAmount.toFixed(0)}
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-slate-400">
-                                                                IGST (18%): +{gstAmount.toFixed(0)}
-                                                            </span>
-                                                        )}
+                                                        {gstAmount > 0 && (
+                                                            isIntraState ? (
+                                                                <span className="text-slate-400">
+                                                                    CGST (9%) + SGST (9%): +{gstAmount.toFixed(0)}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400">
+                                                                    IGST (18%): +{gstAmount.toFixed(0)}
+                                                                </span>
+                                                            ))}
 
                                                         {tdsAmount > 0 && (
                                                             <span className="text-red-500 font-medium">
@@ -365,8 +422,11 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
                                 </div>
                             </div>
 
-                            <div className="text-center mt-8 opacity-50">
-                                <p className="text-[10px] text-slate-400">Generated via Creatorsmela Invoice</p>
+                            <div className="text-center mt-[25%] opacity-50">
+                                {/*make it good for the footer*/}
+
+                                <div className="text-[12px] text-slate-400 font-bold">Generated via Creatorsmela's Invoice Maker</div>
+                                <div className="text-[12px] text-slate-400 font-bold">wwwCreatorsmela.com</div>
                             </div>
                         </div>
                     </div>

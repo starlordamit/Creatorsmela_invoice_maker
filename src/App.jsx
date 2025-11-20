@@ -19,6 +19,23 @@ function App() {
     setMobileView('editor');
     setSignatureTrigger(prev => prev + 1);
   };
+  const urlParams = new URLSearchParams(window.location.search);
+  const billTo = urlParams.get('billto');
+  let clientName = '', clientAddress = '', clientPan = '', clientGstin = '';
+
+  if (billTo === 'clyromedia') {
+    clientName = 'CLYROMEDIA PRIVATE LIMITED';
+    clientAddress = '01, KANKRAWA BAAS, VILLAGE-SOLIYANA, POST-THIROD, MUNDWA, Nagaur, Rajasthan, 341026';
+    clientPan = 'AAMCC2269E';
+    clientGstin = '08AAMCC2269E1ZL';
+  }
+  else {
+    clientName = 'Enter Company Name';
+    clientAddress = 'Enter Company Address';
+    clientPan = 'Enter Company Pan';
+    clientGstin = 'Enter Company Gstin';
+  }
+
 
   const [formData, setFormData] = useState({
     invoiceNumber: '',
@@ -27,10 +44,10 @@ function App() {
     creatorAddress: '',
     creatorPan: '',
     creatorGstin: '',
-    clientName: 'CLYROMEDIA PRIVATE LIMITED',
-    clientAddress: '01, KANKRAWA BAAS, VILLAGE-SOLIYANA, POST-THIROD, MUNDWA, Nagaur, Rajasthan, 341026',
-    clientPan: '',
-    clientGstin: '08AAMCC2269E1ZL',
+    clientName: clientName,
+    clientAddress: clientAddress,
+    clientPan: clientPan,
+    clientGstin: clientGstin,
     hsnCode: '998361',
     items: [{ name: 'Advertisement Services', description: '', quantity: 1, rate: 0, amount: 0 }],
     taxRate: 0,
@@ -80,14 +97,7 @@ function App() {
           {/* Actions Area */}
           <div className="flex items-center gap-3">
 
-            {/* Mobile View Toggler (Hidden on Desktop) */}
-            <button
-              onClick={() => setMobileView(mobileView === 'editor' ? 'preview' : 'editor')}
-              className={`lg:hidden flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${darkMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'
-                }`}
-            >
-              {mobileView === 'editor' ? <><Eye size={14} /> Preview</> : <><Edit3 size={14} /> Edit</>}
-            </button>
+
 
             {/* Theme Selector (Dots) */}
             <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-full border bg-transparent border-slate-200 dark:border-slate-800">
@@ -142,10 +152,10 @@ function App() {
             w-full lg:w-7/12 xl:w-8/12 
             bg-slate-100 dark:bg-slate-900/50
             ${mobileView === 'editor' ? 'hidden lg:flex' : 'flex'}
-            flex-col items-center justify-start pt-8 pb-20 px-4 overflow-y-auto h-[calc(100vh-3.5rem)] sticky top-14
+            flex-col h-[calc(100vh-3.5rem)] sticky top-14
           `}>
             {/* Mobile-only prompt above preview */}
-            <div className="lg:hidden w-full mb-4 flex justify-between items-center">
+            <div className="lg:hidden w-full p-4 flex justify-between items-center bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 shrink-0 z-20">
               <h3 className="text-xs font-bold uppercase text-slate-500">Live Preview</h3>
               <button
                 onClick={() => setMobileView('editor')}
@@ -155,7 +165,7 @@ function App() {
               </button>
             </div>
 
-            <div className="w-full max-w-4xl shadow-2xl rounded-none sm:rounded-lg overflow-hidden animate-in fade-in zoom-in-80 duration-300">
+            <div className="flex-1 w-full overflow-hidden relative">
               <InvoicePreview
                 data={formData}
                 theme={theme}
@@ -164,7 +174,7 @@ function App() {
               />
             </div>
 
-            <div className="mt-6 text-center lg:hidden">
+            <div className="p-4 text-center lg:hidden bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shrink-0">
               <p className="text-xs text-slate-400">Tip: Switch back to Edit to sign the invoice.</p>
             </div>
           </div>
@@ -173,6 +183,17 @@ function App() {
 
         <UserGuide darkMode={darkMode} />
       </main>
+
+      {/* Mobile Floating Preview Button */}
+      <div className={`lg:hidden fixed bottom-6 right-6 z-50 transition-transform duration-300 ${mobileView === 'editor' ? 'translate-y-0' : 'translate-y-24'}`}>
+        <button
+          onClick={() => setMobileView('preview')}
+          className="flex items-center gap-2 px-6 py-3.5 rounded-full font-bold shadow-xl shadow-blue-600/30 bg-blue-600 text-white active:scale-95 transition-all hover:bg-blue-700"
+        >
+          <Eye size={20} />
+          <span>Preview</span>
+        </button>
+      </div>
 
       <OnboardingTour darkMode={darkMode} />
     </div>

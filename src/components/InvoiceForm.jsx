@@ -71,6 +71,23 @@ const InvoiceForm = ({ onInvoiceUpdate, darkMode, currentStep, setCurrentStep, s
     // currentStep is now a prop
     const [showSignatureModal, setShowSignatureModal] = useState(false);
     const [selectedKycIndex, setSelectedKycIndex] = useState(0);
+    // set the client details for the clyromedia private limited if the param is billto=clyromedia
+    const urlParams = new URLSearchParams(window.location.search);
+    const billTo = urlParams.get('billto');
+    let clientName = '', clientAddress = '', clientPan = '', clientGstin = '';
+
+    if (billTo === 'clyromedia') {
+        clientName = 'CLYROMEDIA PRIVATE LIMITED';
+        clientAddress = '01, KANKRAWA BAAS, VILLAGE-SOLIYANA, POST-THIROD, MUNDWA, Nagaur, Rajasthan, 341026';
+        clientPan = 'AAMCC2269E';
+        clientGstin = '08AAMCC2269E1ZL';
+    }
+    else {
+        clientName = 'Company Name';
+        clientAddress = 'Company Address';
+        clientPan = 'Company Pan';
+        clientGstin = 'Company Gstin';
+    }
 
     const [formData, setFormData] = useState({
         invoiceNumber: '',
@@ -79,10 +96,10 @@ const InvoiceForm = ({ onInvoiceUpdate, darkMode, currentStep, setCurrentStep, s
         creatorAddress: '',
         creatorPan: '',
         creatorGstin: '',
-        clientName: 'CLYROMEDIA PRIVATE LIMITED',
-        clientAddress: '01, KANKRAWA BAAS, VILLAGE-SOLIYANA, POST-THIROD, MUNDWA, Nagaur, Rajasthan, 341026',
-        clientPan: 'AAMCC2269E',
-        clientGstin: '08AAMCC2269E1ZL',
+        clientName: clientName,
+        clientAddress: clientAddress,
+        clientPan: clientPan,
+        clientGstin: clientGstin,
         items: [{ name: 'Advertisement Services', description: '', quantity: 1, rate: 1000, amount: 1000, hsnCode: '998361' }],
         taxRate: 0,
         discount: 0,
