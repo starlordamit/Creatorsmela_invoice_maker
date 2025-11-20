@@ -368,17 +368,19 @@ const InvoiceFormDoodle = ({ onInvoiceUpdate, darkMode, currentStep, setCurrentS
                     Back
                 </button>
             )}
-            <button
-                onClick={onNext}
-                className={`flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-transform active:scale-95 border-2
+            {step !== totalSteps - 1 && (
+                <button
+                    onClick={onNext}
+                    className={`flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-transform active:scale-95 border-2
                 ${step === totalSteps - 1
-                        ? (darkMode ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-emerald-400 border-black text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]')
-                        : (darkMode ? 'bg-blue-600 border-blue-400 text-white' : 'bg-blue-400 border-black text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]')}
+                            ? (darkMode ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-emerald-400 border-black text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]')
+                            : (darkMode ? 'bg-blue-600 border-blue-400 text-white' : 'bg-blue-400 border-black text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]')}
                 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px]`}
-            >
-                {step === totalSteps - 1 ? 'Finish & Download' : 'Next Step'}
-                {step === totalSteps - 1 ? <Check size={18} strokeWidth={3} /> : <ArrowRight size={18} strokeWidth={3} />}
-            </button>
+                >
+                    {step === totalSteps - 1 ? 'Hurrah! Invoice Generated' : 'Next Step'}
+                    {step === totalSteps - 1 ? <Check size={18} strokeWidth={3} /> : <ArrowRight size={18} strokeWidth={3} />}
+                </button>
+            )}
         </div>
     );
 
