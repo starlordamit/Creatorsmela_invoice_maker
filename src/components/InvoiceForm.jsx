@@ -201,11 +201,6 @@ const InvoiceFormDoodle = ({ onInvoiceUpdate, darkMode, currentStep, setCurrentS
         clientAddress = '01, KANKRAWA BAAS, VILLAGE-SOLIYANA, POST-THIROD, MUNDWA, Nagaur, Rajasthan, 341026';
         clientPan = 'AAMCC2269E';
         clientGstin = '08AAMCC2269E1ZL';
-    } else {
-        clientName = 'Company Name';
-        clientAddress = 'Company Address';
-        clientPan = 'Company Pan';
-        clientGstin = 'Company Gstin';
     }
 
     const [formData, setFormData] = useState({
