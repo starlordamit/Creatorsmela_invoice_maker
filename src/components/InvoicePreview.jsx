@@ -1,324 +1,271 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Download, Loader2, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+    Download, Loader2, ZoomIn, ZoomOut, CheckCircle2,
+    AlertTriangle, Eye, X, FileText
+} from 'lucide-react';
 import { toJpeg } from 'html-to-image';
 import jsPDF from 'jspdf';
 
-const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
-    const [scale, setScale] = useState(1);
-    const [containerHeight, setContainerHeight] = useState(0);
+// --- Constants for A4 Paper (96 DPI) ---
+const A4_WIDTH = 794;
+const A4_HEIGHT = 1123;
+const A4_RATIO = A4_WIDTH / A4_HEIGHT;
+
+const VerificationChecklist = ({ data, isOpen, onClose, darkMode }) => {
+    if (!isOpen) return null;
+
+    const checks = [
+        { label: "Invoice Number Set", valid: !!data.invoiceNumber },
+        { label: "Client Details", valid: !!data.clientName },
+        { label: "Items Added", valid: data.items.length > 0 },
+        { label: "Bank Details", valid: !!data.accountNumber },
+        { label: "Signature Added", valid: !!data.signature },
+    ];
+    const allValid = checks.every(c => c.valid);
+
+    return (
+        <div className={`absolute top-20 right-6 w-72 rounded-2xl shadow-2xl border backdrop-blur-xl z-40 animate-in slide-in-from-right-10 duration-300
+            ${darkMode ? 'bg-zinc-900/95 border-zinc-700 shadow-black/50' : 'bg-white/95 border-slate-200 shadow-slate-200/50'}`}>
+
+            <div className="p-4 border-b border-slate-100/10 flex justify-between items-center">
+                <h3 className={`text-xs font-bold uppercase tracking-widest ${darkMode ? 'text-zinc-100' : 'text-slate-800'}`}>
+                    Pre-Flight Check
+                </h3>
+                <button onClick={onClose} className="opacity-50 hover:opacity-100 transition-opacity">
+                    <X size={14} className={darkMode ? 'text-white' : 'text-slate-900'} />
+                </button>
+            </div>
+            <div className="p-4 space-y-3">
+                {checks.map((check, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm">
+                        <span className={darkMode ? 'text-zinc-400' : 'text-slate-500'}>{check.label}</span>
+                        {check.valid ? <CheckCircle2 size={16} className="text-emerald-500" /> : <AlertTriangle size={16} className="text-amber-500" />}
+                    </div>
+                ))}
+            </div>
+            <div className={`p-3 mx-4 mb-4 rounded-xl text-center border ${allValid ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600' : 'bg-amber-500/10 border-amber-500/20 text-amber-600'}`}>
+                <span className="text-xs font-bold uppercase tracking-wider">{allValid ? "Ready to Export" : "Action Required"}</span>
+            </div>
+        </div>
+    );
+};
+
+const InvoicePreview = ({ data, theme, darkMode, onEditSignature, onValidate }) => {
+    const [scale, setScale] = useState(0.6); // Default zoom
     const [isGenerating, setIsGenerating] = useState(false);
-    const [manualZoom, setManualZoom] = useState(false);
+    const [showChecklist, setShowChecklist] = useState(false);
 
     const containerRef = useRef(null);
     const contentRef = useRef(null);
 
-    // A4 Dimensions in Pixels (96 DPI)
-    const A4_WIDTH = 794;
-
-    // Responsive Scaling Logic
+    // --- Smart Scaling Logic ---
+    // Auto-calculates the best fit based on screen height/width on mount
     useEffect(() => {
-        const calculateDimensions = () => {
-            if (!containerRef.current || !contentRef.current || manualZoom) return;
+        if (containerRef.current) {
+            const { offsetWidth, offsetHeight } = containerRef.current;
+            // Add padding for the 'desk' look
+            const availableWidth = offsetWidth - 64;
+            const availableHeight = offsetHeight - 64;
 
-            const containerWidth = containerRef.current.offsetWidth;
-            // Add padding based on view
-            const padding = window.innerWidth > 768 ? 64 : 12;
-            // different scales for the different screen sizes
-            const scale = window.innerWidth > 768 ? 0.8 : 0.5;
-            const newScale = Math.max((containerWidth - padding) / A4_WIDTH, scale);
+            // Calculate ratios
+            const widthScale = availableWidth / A4_WIDTH;
+            const heightScale = availableHeight / A4_HEIGHT;
 
-            setScale(newScale);
+            // Choose the smaller scale to fit entirely, or width scale for scrolling
+            const fitScale = Math.min(widthScale, heightScale);
 
-            // Update height wrapper based on actual content
-            if (contentRef.current) {
-                const actualHeight = contentRef.current.scrollHeight;
-                setContainerHeight(actualHeight * newScale);
-            }
-        };
-
-        calculateDimensions();
-        window.addEventListener('resize', calculateDimensions);
-
-        const observer = new ResizeObserver(() => {
-            if (contentRef.current) {
-                const actualHeight = contentRef.current.scrollHeight;
-                setContainerHeight(actualHeight * scale);
-            }
-        });
-
-        if (contentRef.current) observer.observe(contentRef.current);
-
-        return () => {
-            window.removeEventListener('resize', calculateDimensions);
-            observer.disconnect();
-        };
-    }, [data, scale, manualZoom, window.innerWidth]);
-
-    const handleZoom = (direction) => {
-        setManualZoom(true);
-        setScale(prev => {
-            const newScale = direction === 'in' ? prev + 0.1 : prev - 0.1;
-            if (contentRef.current) {
-                setContainerHeight(contentRef.current.scrollHeight * newScale);
-            }
-            return Math.max(0.3, Math.min(newScale, 3));
-        });
-    };
-
-    // Pinch to zoom logic
-    const touchStartDist = useRef(null);
-    const startScale = useRef(1);
-
-    const handleTouchStart = (e) => {
-        if (e.touches.length === 2) {
-            const dist = Math.hypot(
-                e.touches[0].pageX - e.touches[1].pageX,
-                e.touches[0].pageY - e.touches[1].pageY
-            );
-            touchStartDist.current = dist;
-            startScale.current = scale;
+            // Set initial scale (clamped between 0.4 and 1.0 for visibility)
+            setScale(Math.min(Math.max(fitScale, 0.45), 1.0));
         }
-    };
+    }, []);
 
-    const handleTouchMove = (e) => {
-        if (e.touches.length === 2 && touchStartDist.current) {
-            const dist = Math.hypot(
-                e.touches[0].pageX - e.touches[1].pageX,
-                e.touches[0].pageY - e.touches[1].pageY
-            );
-            const delta = dist / touchStartDist.current;
-            const newScale = Math.min(Math.max(startScale.current * delta, 0.3), 3);
-            setScale(newScale);
-            setManualZoom(true);
+    const handleZoom = (dir) => setScale(prev => {
+        const newScale = prev + (dir === 'in' ? 0.1 : -0.1);
+        return Math.max(0.3, Math.min(newScale, 1.5));
+    });
 
-            if (contentRef.current) {
-                setContainerHeight(contentRef.current.scrollHeight * newScale);
-            }
-        }
-    };
-
-    const handleTouchEnd = () => {
-        touchStartDist.current = null;
-    };
-
-    // --- MATH LOGIC ---
-    const calculateTax = (amount, taxRate) => amount * (taxRate / 100);
+    // --- Calculations ---
     const subtotal = data.items.reduce((acc, item) => acc + item.amount, 0);
-    const tdsAmount = calculateTax(subtotal, data.taxRate);
-
-    let discountAmount = 0;
-    if (data.discountType === 'percentage') {
-        discountAmount = subtotal * (data.discount / 100);
-    } else {
-        discountAmount = parseFloat(data.discount) || 0;
-    }
-
-    const creatorStateCode = data.creatorGstin ? data.creatorGstin.substring(0, 2) : '';
-    const clientStateCode = data.clientGstin ? data.clientGstin.substring(0, 2) : '';
-
-    const isIntraState = creatorStateCode && clientStateCode && creatorStateCode === clientStateCode;
+    const discountAmount = data.discountType === 'percentage' ? subtotal * (data.discount / 100) : parseFloat(data.discount) || 0;
     const taxableValue = subtotal - discountAmount;
-    const gstRate = 18;
-    let gstAmount = 0;
-    if (!creatorStateCode || !clientStateCode) {
-        gstAmount = 0;
-    }
-    else {
-        gstAmount = taxableValue * (gstRate / 100);
-    }
 
-    const total = taxableValue + gstAmount - tdsAmount;
+    // TDS Calculation
+    const tdsAmount = taxableValue * (data.taxRate / 100);
 
-    // --- PDF GENERATION ---
-    const handleDownloadPDF = async () => {
-        if (!data.signature) {
-            if (onEditSignature) {
-                onEditSignature();
-            }
-            return;
+    // GST Calculation
+    const creatorState = data.creatorGstin?.substring(0, 2);
+    const clientState = data.clientGstin?.substring(0, 2);
+    const isInterState = creatorState !== clientState;
+    const hasGst = creatorState && clientState; // Only apply GST if both parties have GSTIN
+
+    let cgstAmount = 0;
+    let sgstAmount = 0;
+    let igstAmount = 0;
+
+    if (hasGst) {
+        if (isInterState) {
+            igstAmount = taxableValue * 0.18;
+        } else {
+            cgstAmount = taxableValue * 0.09;
+            sgstAmount = taxableValue * 0.09;
         }
-        if (!contentRef.current) return;
+    }
+
+    const totalGst = cgstAmount + sgstAmount + igstAmount;
+    const total = taxableValue + totalGst - tdsAmount;
+
+    // --- PDF Generation ---
+    const handleDownloadPDF = async () => {
+        // Validate before download
+        if (onValidate && !onValidate()) return;
+
+        if (!data.signature && !confirm("Signature missing. Download anyway?")) return;
 
         setIsGenerating(true);
         try {
             const element = contentRef.current;
-            const actualHeight = element.scrollHeight;
-            const actualWidth = element.scrollWidth;
-
+            // 1. Capture at 2x resolution for crisp text
             const dataUrl = await toJpeg(element, {
-                quality: 1.0, // Max quality
-                pixelRatio: 2, // High res for clear text
-                backgroundColor: '#ffffff', // FORCE WHITE BACKGROUND FOR PDF
-                width: actualWidth,
-                height: actualHeight,
-                style: {
-                    transform: 'none',
-                    transformOrigin: 'top left',
-                    margin: '0'
-                }
+                quality: 1.0,
+                pixelRatio: 3,
+                backgroundColor: '#ffffff',
             });
 
-            const pdfWidth = 210; // A4 mm
-            const pdfHeight = (actualHeight / actualWidth) * pdfWidth;
-
+            // 2. Create PDF with exact A4 dimensions
             const pdf = new jsPDF({
                 orientation: 'portrait',
                 unit: 'mm',
-                format: [pdfWidth, pdfHeight],
-                compress: true
+                format: 'a4'
             });
 
-            pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight, '', 'FAST');
-            const safeInvoiceNumber = (data.invoiceNumber || 'draft').replace(/[^a-zA-Z0-9-_]/g, '_');
-            pdf.save(`Invoice_${safeInvoiceNumber}.pdf`);
-        } catch (error) {
-            console.error("Error generating PDF:", error);
-            alert("Failed to generate PDF.");
+            const imgWidth = 210; // A4 width in mm
+            const imgHeight = 297; // A4 height in mm
+
+            pdf.addImage(dataUrl, 'JPEG', 0, 0, imgWidth, imgHeight);
+            pdf.save(`Invoice_${data.invoiceNumber || 'Draft'}.pdf`);
+        } catch (err) {
+            console.error(err);
+            alert("Failed to generate PDF");
         } finally {
             setIsGenerating(false);
         }
     };
 
-    // Theme Colors - Only affects accents now, not the background
-    const themes = {
-        blue: { text: 'text-blue-600', border: 'border-blue-600', bg: 'bg-blue-600' },
-        black: { text: 'text-zinc-900', border: 'border-zinc-900', bg: 'bg-zinc-900' },
-        purple: { text: 'text-purple-600', border: 'border-purple-600', bg: 'bg-purple-600' },
-    };
-    // Default to user selection or Blue, but ONLY for accents.
-    // If you want to ignore the passed 'theme' prop entirely, replace 'theme' with 'black' below.
-    const t = themes[theme] || themes.blue;
+    const accentColor = {
+        blue: 'text-blue-600 border-blue-600',
+        black: 'text-zinc-900 border-zinc-900',
+        purple: 'text-purple-600 border-purple-600',
+    }[theme] || 'text-blue-600 border-blue-600';
 
     return (
-        // OUTER WRAPPER: Respects Dark Mode (UI Context)
-        // OUTER WRAPPER: Full height, no borders
-        <div className={`flex flex-col items-center w-full h-full transition-colors duration-300 ${darkMode ? 'bg-zinc-950' : 'bg-slate-100'}`}>
+        <div className={`relative w-full h-full flex flex-col overflow-hidden transition-colors duration-500 
+            ${darkMode ? 'bg-zinc-950' : 'bg-slate-100'}`}>
 
-            {/* TOOLBAR: Respects Dark Mode (UI Context) */}
-            {/* TOOLBAR: Full width, sticky top */}
-            <div className={`w-full flex flex-col md:flex-row justify-between items-center gap-4 p-4 border-b sticky top-0 z-10 ${darkMode ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
+            {/* Desk Texture Background */}
+            <div className={`absolute inset-0 pointer-events-none opacity-[0.04] 
+                ${darkMode ? 'bg-[radial-gradient(#ffffff_1.5px,transparent_1.5px)]' : 'bg-[radial-gradient(#000000_1.5px,transparent_1.5px)]'} 
+                [background-size:24px_24px]`}
+            />
 
-                <div className="flex items-center gap-2 text-sm font-medium opacity-70">
-                    <span className="hidden md:inline">Zoom: {Math.round(scale * 100)}%</span>
-                    <div className={`flex items-center rounded-lg overflow-hidden border ${darkMode ? 'bg-zinc-800 border-zinc-700' : 'bg-slate-100 border-slate-200'}`}>
-                        <button onClick={() => handleZoom('out')} className="p-1.5 hover:opacity-70 transition-opacity"><ZoomOut size={14} /></button>
-                        <button onClick={() => handleZoom('in')} className="p-1.5 hover:opacity-70 transition-opacity"><ZoomIn size={14} /></button>
+            {/* Top Bar */}
+            <div className="flex items-center justify-between px-6 py-4 z-10 pointer-events-none">
+                <div className="pointer-events-auto flex items-center gap-3">
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border shadow-sm backdrop-blur-md
+                        ${darkMode ? 'bg-zinc-900/80 border-zinc-700 text-zinc-300' : 'bg-white/80 border-slate-200 text-slate-600'}`}>
+                        <FileText size={14} />
+                        <span className="text-xs font-bold uppercase tracking-wider">A4 Preview</span>
                     </div>
                 </div>
-
-                <button
-                    onClick={handleDownloadPDF}
-                    disabled={isGenerating}
-                    className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 active:scale-95"
-                >
-                    {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                    {isGenerating ? 'Processing...' : 'Download Invoice'}
-                </button>
+                <div className="pointer-events-auto">
+                    <button
+                        onClick={() => setShowChecklist(!showChecklist)}
+                        className={`p-2 rounded-full transition-all hover:bg-black/5 dark:hover:bg-white/10 
+                            ${darkMode ? 'text-zinc-400 hover:text-white' : 'text-slate-400 hover:text-slate-900'}`}>
+                        <Eye size={20} />
+                    </button>
+                </div>
             </div>
 
-            {/* SCROLLABLE WORKSPACE */}
-            <div
-                className="w-full h-full flex-1 overflow-auto relative flex pb-20"
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-            >
+            <VerificationChecklist data={data} isOpen={showChecklist} onClose={() => setShowChecklist(false)} darkMode={darkMode} />
 
-                {/* SCALING CONTAINER */}
+            {/* Workspace: Centered & Scaled */}
+            <div className="flex-1 overflow-auto flex items-center justify-center p-8 relative custom-scrollbar" ref={containerRef}>
                 <div
-                    ref={containerRef}
-                    className="relative transition-transform duration-75 ease-out flex-shrink-0 m-auto"
                     style={{
-                        width: `${A4_WIDTH * scale}px`,
-                        height: containerHeight > 0 ? `${containerHeight}px` : 'auto'
+                        transform: `scale(${scale})`,
+                        width: A4_WIDTH,
+                        height: A4_HEIGHT, // Strict height
                     }}
+                    className="transition-transform duration-200 ease-out shadow-2xl shadow-black/20 flex-shrink-0 origin-center"
                 >
-                    {/* INVOICE PAPER: FORCED LIGHT MODE 
-                        We hardcode bg-white and text-slate-900 here regardless of 'darkMode' prop.
-                    */}
+                    {/* --- THE INVOICE PAPER --- */}
                     <div
-                        id="invoice-content"
                         ref={contentRef}
-                        style={{
-                            width: '794px', // A4 Width
-                            minHeight: '1123px', // A4 Height
-                            transform: `scale(${scale})`,
-                            transformOrigin: 'top left',
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            backgroundColor: 'white', // FORCE WHITE
-                        }}
-                        className="shadow-2xl shadow-slate-400/20 bg-white text-slate-900"
+                        className="bg-white w-full h-full relative flex flex-col text-slate-900"
+                        style={{ aspectRatio: '210/297' }} // Lock aspect ratio
                     >
+                        {/* Content Container with Padding */}
+                        <div className="flex-1 p-12 flex flex-col h-full">
 
-                        {/* INVOICE CONTENT - STRICTLY LIGHT MODE STYLES */}
-                        <div className="flex flex-col p-10 h-full font-sans relative text-slate-900">
-
-                            {/* Header */}
-                            <div className="flex justify-between items-start mb-10">
-                                <div className="max-w-[60%]">
-                                    <h1 className={`text-5xl font-bold tracking-tight mb-3 ${t.text}`}>INVOICE</h1>
-                                    <p className="text-base text-slate-500 font-medium">#{data.invoiceNumber}</p>
+                            {/* 1. Header */}
+                            <div className="flex justify-between items-start mb-12">
+                                <div>
+                                    <h1 className={`text-5xl font-extrabold tracking-tighter mb-1 ${accentColor.split(' ')[0]}`}>INVOICE</h1>
+                                    <span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                                        #{data.invoiceNumber || 'DRAFT'}
+                                    </span>
                                 </div>
                                 <div className="text-right">
-                                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Date</div>
-                                    <div className="text-xl font-semibold">{new Date(data.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Date Issued</div>
+                                    <div className="text-lg font-bold text-slate-800">
+                                        {new Date(data.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Addresses */}
-                            <div className="grid grid-cols-2 gap-12 mb-10">
-                                <div className="break-words pr-4">
-                                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Billed By</div>
-                                    <h3 className="font-bold text-xl mb-2 leading-tight text-slate-900">{data.creatorName}</h3>
-                                    <p className="text-sm text-slate-500 whitespace-pre-wrap leading-relaxed mb-3 max-w-[300px]">{data.creatorAddress}</p>
-                                    {(data.creatorPan || data.creatorGstin) && (
-                                        <div className="space-y-1 text-xs text-slate-500">
-                                            {data.creatorPan && <p><span className="font-semibold text-slate-700">PAN:</span> {data.creatorPan}</p>}
-                                            {data.creatorGstin && <p><span className="font-semibold text-slate-700">GSTIN:</span> {data.creatorGstin}</p>}
-                                        </div>
-                                    )}
+                            {/* 2. Entities */}
+                            <div className="grid grid-cols-2 gap-8 mb-10">
+                                <div className="p-6 rounded-xl bg-slate-50 border border-slate-100">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">From</div>
+                                    <h3 className="font-bold text-lg text-slate-900 mb-1">{data.creatorName || 'Creator Name'}</h3>
+                                    <p className="text-xs text-slate-500 whitespace-pre-line leading-relaxed">{data.creatorAddress}</p>
+                                    {data.creatorGstin && <p className="text-xs text-slate-500 mt-2 font-bold">GSTIN: {data.creatorGstin}</p>}
+                                    {data.creatorPan && <p className="text-xs text-slate-500 font-bold">PAN: {data.creatorPan}</p>}
                                 </div>
-                                <div className="break-words pl-4">
-                                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Billed To</div>
-                                    <h3 className="font-bold text-xl mb-2 leading-tight text-slate-900">{data.clientName}</h3>
-                                    <p className="text-sm text-slate-500 whitespace-pre-wrap leading-relaxed mb-3 max-w-[300px]">{data.clientAddress}</p>
-                                    {(data.clientPan || data.clientGstin) && (
-                                        <div className="space-y-1 text-xs text-slate-500">
-                                            {data.clientPan && <p><span className="font-semibold text-slate-700">PAN:</span> {data.clientPan}</p>}
-                                            {data.clientGstin && <p><span className="font-semibold text-slate-700">GSTIN:</span> {data.clientGstin}</p>}
-                                        </div>
-                                    )}
+                                <div className="p-6 rounded-xl bg-slate-50 border border-slate-100 text-right">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Bill To</div>
+                                    <h3 className="font-bold text-lg text-slate-900 mb-1">{data.clientName || 'Client Name'}</h3>
+                                    <p className="text-xs text-slate-500 whitespace-pre-line leading-relaxed">{data.clientAddress}</p>
+                                    {data.clientGstin && <p className="text-xs text-slate-500 mt-2 font-bold">GSTIN: {data.clientGstin}</p>}
+                                    {data.clientPan && <p className="text-xs text-slate-500 font-bold">PAN: {data.clientPan}</p>}
                                 </div>
                             </div>
 
-                            {/* Items Table */}
-                            <div className="mb-8">
-                                <table className="w-full table-fixed">
+                            {/* 3. Items Table (Fixed Height/Scroll prevention logic handled by overflow-hidden if needed, but flexible here) */}
+                            <div className="flex-1">
+                                <table className="w-full">
                                     <thead>
-                                        <tr className="border-b-2 border-slate-100">
-                                            <th className="text-left py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-[45%]">Description</th>
-                                            <th className="text-left py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-[15%]">HSN</th>
-                                            <th className="text-center py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-[10%]">Qty</th>
-                                            <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-[15%]">Rate</th>
-                                            <th className="text-right py-3 text-xs font-bold text-slate-400 uppercase tracking-wider w-[15%]">Amount</th>
+                                        <tr className="border-b-2 border-slate-900">
+                                            <th className="text-left py-3 text-xs font-bold uppercase tracking-wider w-[50%]">Description</th>
+                                            <th className="text-center py-3 text-xs font-bold uppercase tracking-wider w-[15%]">Qty</th>
+                                            <th className="text-right py-3 text-xs font-bold uppercase tracking-wider w-[15%]">Rate</th>
+                                            <th className="text-right py-3 text-xs font-bold uppercase tracking-wider w-[20%]">Amount</th>
                                         </tr>
                                     </thead>
                                     <tbody className="text-sm">
-                                        {data.items.map((item, index) => (
-                                            <tr key={index} className="border-b border-slate-50 last:border-0">
-                                                <td className="py-4 pr-4 align-top break-words">
-                                                    <p className="font-bold mb-1 text-slate-900">{item.name}</p>
-                                                    <p className="text-slate-500 whitespace-pre-wrap text-xs leading-relaxed">{item.description}</p>
+                                        {data.items.map((item, i) => (
+                                            <tr key={i} className="border-b border-slate-100 last:border-0">
+                                                <td className="py-4 pr-4 align-top">
+                                                    <p className="font-bold text-slate-900">{item.name}</p>
+                                                    {item.description && <p className="text-xs text-slate-500 mt-1">{item.description}</p>}
+                                                    {item.hsnCode && <p className="text-[10px] text-slate-400 mt-1">HSN: {item.hsnCode}</p>}
                                                 </td>
-                                                <td className="py-4 align-top text-slate-500 break-all">{item.hsnCode}</td>
-                                                <td className="py-4 align-top text-center text-slate-500">{item.quantity}</td>
-                                                <td className="py-4 align-top text-right text-slate-500 whitespace-nowrap">
-                                                    {data.currency === 'INR' ? '₹' : data.currency} {item.rate.toLocaleString()}
+                                                <td className="py-4 text-center align-top text-slate-600">{item.quantity}</td>
+                                                <td className="py-4 text-right align-top text-slate-600">
+                                                    {item.rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                                 </td>
-                                                <td className="py-4 align-top text-right font-medium whitespace-nowrap text-slate-900">
-                                                    {data.currency === 'INR' ? '₹' : data.currency} {item.amount.toLocaleString()}
+                                                <td className="py-4 text-right font-bold text-slate-900 align-top">
+                                                    {item.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                                 </td>
                                             </tr>
                                         ))}
@@ -326,112 +273,105 @@ const InvoicePreview = ({ data, theme, darkMode, onEditSignature }) => {
                                 </table>
                             </div>
 
-                            {/* Financials - Condensed 3-Row Layout with Red Negatives & Percentages */}
-                            <div className="flex justify-end mb-10 mt-0 pt-2">
-                                <div className="w-[55%] md:w-[50%]">
-                                    <table className="w-full border-collapse">
-                                        <tbody>
-
-                                            {/* --- ROW 1: Base Value (Subtotal - Discount = Taxable) --- */}
-                                            <tr className="border-b border-slate-100">
-                                                <td className="py-2 text-right pr-4 align-top">
-                                                    <div className="text-slate-600 font-medium text-xs">Taxable Amount</div>
-                                                    {/* Breakdown */}
-                                                    <div className="text-[10px] mt-0.5 flex flex-col items-end gap-0.5">
-                                                        <span className="text-slate-400">
-                                                            Subtotal: {subtotal.toLocaleString()}
-                                                        </span>
-                                                        {discountAmount > 0 && (
-                                                            <span className="text-red-500 font-medium">
-                                                                {/* Calculate Discount %: (Amt / Subtotal * 100) */}
-                                                                Discount ({((discountAmount / (subtotal || 1)) * 100).toFixed(0)}%): -{discountAmount.toFixed(0)}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="py-2 text-right text-slate-700 font-medium text-xs align-top pt-2">
-                                                    {data.currency === 'INR' ? '₹' : data.currency} {taxableValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                </td>
-                                            </tr>
-
-                                            {/* --- ROW 2: Taxes & Deductions (GST - TDS) --- */}
-                                            <tr className="border-b border-slate-100">
-                                                <td className="py-2 text-right pr-4 align-top">
-                                                    <div className="text-slate-600 font-medium text-xs">Taxes & Deductions</div>
-                                                    {/* Breakdown */}
-                                                    <div className="text-[10px] mt-0.5 flex flex-col items-end gap-0.5">
-                                                        {gstAmount > 0 && (
-                                                            isIntraState ? (
-                                                                <span className="text-slate-400">
-                                                                    CGST (9%) + SGST (9%): +{gstAmount.toFixed(0)}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-slate-400">
-                                                                    IGST (18%): +{gstAmount.toFixed(0)}
-                                                                </span>
-                                                            ))}
-
-                                                        {tdsAmount > 0 && (
-                                                            <span className="text-red-500 font-medium">
-                                                                {/* Use data.taxRate or calculate percentage */}
-                                                                TDS ({data.taxRate || ((tdsAmount / taxableValue) * 100).toFixed(0)}%): -{tdsAmount.toFixed(0)}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="py-2 text-right text-slate-700 font-medium text-xs align-top pt-2">
-                                                    {/* Shows the net tax adjustment (GST - TDS) */}
-                                                    + {data.currency === 'INR' ? '₹' : data.currency} {(gstAmount - tdsAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                </td>
-                                            </tr>
-
-                                            {/* --- ROW 3: Grand Total --- */}
-                                            <tr>
-                                                <td className="py-3 text-slate-900 font-bold text-right pr-4 text-sm align-bottom">Total</td>
-                                                <td className={`py-3 text-right font-bold text-base align-bottom ${t.text}`}>
-                                                    {data.currency === 'INR' ? '₹' : data.currency} {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                </td>
-                                            </tr>
-
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            {/* Footer: Bank & Signature */}
-                            <div className="mt-auto grid grid-cols-2 gap-8 pt-6 border-t border-dashed border-slate-200">
-                                <div>
-                                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Bank Details</div>
-                                    <div className="space-y-1.5 text-sm text-slate-600">
-                                        <p className="break-words"><span className="font-bold text-slate-900">Bank:</span> {data.bankName}</p>
-                                        <p className="break-all"><span className="font-bold text-slate-900">Acc No:</span> {data.accountNumber}</p>
-                                        <p><span className="font-bold text-slate-900">IFSC:</span> {data.ifscCode}</p>
-                                        <p className="break-words"><span className="font-bold text-slate-900">Holder:</span> {data.accountHolderName}</p>
-                                    </div>
-                                </div>
-                                <div className="flex flex-col items-end justify-end">
-                                    {data.signature && (
-                                        <div className="mb-4">
-                                            {/* Removed 'invert' logic - signature is always normal */}
-                                            <img src={data.signature} alt="Signature" className="h-16 object-contain" />
+                            {/* 4. Totals & Footer (Push to bottom) */}
+                            <div className="mt-auto">
+                                {/* Calculation Block */}
+                                <div className="flex justify-end mb-8">
+                                    <div className="w-5/12 space-y-2">
+                                        <div className="flex justify-between text-xs text-slate-500">
+                                            <span>Subtotal</span>
+                                            <span>{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                                         </div>
-                                    )}
-                                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider border-t border-slate-200 pt-3 w-40 text-center">
-                                        Authorized Signatory
+
+                                        {discountAmount > 0 && (
+                                            <div className="flex justify-between text-xs text-green-600 font-medium">
+                                                <span>Discount</span>
+                                                <span>-{discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        )}
+
+                                        {/* GST Breakdowns */}
+                                        {igstAmount > 0 && (
+                                            <div className="flex justify-between text-xs text-slate-500">
+                                                <span>IGST (18%)</span>
+                                                <span>{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        )}
+                                        {cgstAmount > 0 && (
+                                            <div className="flex justify-between text-xs text-slate-500">
+                                                <span>CGST (9%)</span>
+                                                <span>{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        )}
+                                        {sgstAmount > 0 && (
+                                            <div className="flex justify-between text-xs text-slate-500">
+                                                <span>SGST (9%)</span>
+                                                <span>{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        )}
+
+                                        {/* TDS */}
+                                        {tdsAmount > 0 && (
+                                            <div className="flex justify-between text-xs text-red-500 font-medium">
+                                                <span>TDS ({data.taxRate}%)</span>
+                                                <span>-{tdsAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                            </div>
+                                        )}
+
+                                        <div className={`flex justify-between items-center pt-3 border-t border-slate-200 text-lg font-bold ${accentColor.split(' ')[0]}`}>
+                                            <span>Total</span>
+                                            <span>{data.currency} {total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div className="text-center mt-[25%] opacity-50">
-                                {/*make it good for the footer*/}
+                                {/* Bottom Strip */}
+                                <div className="grid grid-cols-2 gap-8 pt-6 border-t border-dashed border-slate-300">
+                                    <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Bank Details</p>
+                                        <p className="text-xs text-slate-600 font-medium">{data.bankName}</p>
+                                        <p className="text-xs text-slate-500">A/C: {data.accountNumber} • IFSC: {data.ifscCode}</p>
+                                    </div>
+                                    <div className="flex flex-col items-end">
+                                        {data.signature ? (
+                                            <img src={data.signature} alt="Sign" className="h-12 object-contain mb-2" />
+                                        ) : (
+                                            <div className="h-12 w-32 border border-dashed border-slate-300 bg-slate-50 rounded mb-2 flex items-center justify-center text-[10px] text-slate-400">
+                                                No Signature
+                                            </div>
+                                        )}
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Authorized Signatory</p>
+                                    </div>
+                                </div>
 
-                                <div className="text-[12px] text-slate-400 font-bold">Generated via Creatorsmela's Invoice Maker</div>
-                                <div className="text-[12px] text-slate-400 font-bold">wwwCreatorsmela.com</div>
+                                {/* Branding */}
+                                <div className="text-center mt-8 pt-4 border-t border-slate-100">
+                                    <p className="text-[10px] text-slate-300 font-medium uppercase tracking-widest">Generated via CreatorsMela Invoice</p>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            {/* Floating Controls */}
+            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30 flex gap-2 p-2 rounded-2xl border shadow-2xl backdrop-blur-xl 
+                bg-white/90 border-white dark:bg-zinc-900/90 dark:border-zinc-700">
+                <div className="flex items-center gap-1 px-2">
+                    <button onClick={() => handleZoom('out')} className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg"><ZoomOut size={18} className="text-slate-600 dark:text-zinc-400" /></button>
+                    <span className="w-12 text-center text-xs font-bold text-slate-600 dark:text-zinc-400">{Math.round(scale * 100)}%</span>
+                    <button onClick={() => handleZoom('in')} className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg"><ZoomIn size={18} className="text-slate-600 dark:text-zinc-400" /></button>
+                </div>
+                <div className="w-px bg-slate-200 dark:bg-zinc-700 mx-1"></div>
+                <button
+                    onClick={handleDownloadPDF}
+                    disabled={isGenerating}
+                    className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-sm transition-all active:scale-95 disabled:opacity-50 disabled:scale-100">
+                    {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                    <span>{isGenerating ? "Exporting..." : "Download PDF"}</span>
+                </button>
+            </div>
+
         </div>
     );
 };
