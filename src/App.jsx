@@ -264,7 +264,7 @@ function App() {
               }
             `}
           >
-            <Eye size={22} strokeWidth={3} />
+            <Eye size={15} strokeWidth={3} />
             <span className="tracking-wide text-lg font-hand">Preview PDF</span>
           </button>
         </div>
